@@ -1,0 +1,7 @@
+## Interface: 70300
+## Title: FishBotLink
+## Notes: Paints a few status pixels in the top-left corner (bobber under cursor, channeling, loot open, combat) for the fishing bot to read.
+## Version: 1.2.0
+## SavedVariables: FishBotLinkDB
+
+FishBotLink.lua
