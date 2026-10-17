@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.11.0"
+__version__ = "1.11.2"
 
 import os
 import sys
@@ -142,11 +142,12 @@ MOTION_CROP = 64         # px square around the bobber watched for the bite
 MOTION_INSTANT = 12.0    # mean grey change: click immediately, no sound needed (huge plunge)
 MOTION_STRONG = 4.0      # mean grey change: a plunge, click once a splash sound agrees
 MOTION_WEAK = 1.5        # mean grey change: enough movement to accept a splash sound as ours
-MOTION_SOUND_WINDOW = 1.0  # seconds within which sound and bobber movement must agree
-CAP_DIP_WEAK = 4.0       # px the red cap sinks below its resting height: movement
+MOTION_SOUND_WINDOW = 1.5  # seconds within which sound and bobber movement must agree
+CAP_DIP_WEAK = 4.0       # px the red cap sinks below its resting height, with no splash yet
 CAP_DIP_STRONG = 8.0     # px: a plunge; held for three frames it clicks without sound
-CAP_SHRINK_WEAK = 0.55   # fraction of red cap area lost (going under): movement
+CAP_SHRINK_WEAK = 0.55   # fraction of the cap lost, with no splash yet
 CAP_SHRINK_STRONG = 0.85
+CAP_SHRINK_WITH_SPLASH = 0.30  # a real splash plus the cap a third gone is the bite (42% was a miss)
 CAP_MIN_AREA = 4         # red px needed in the crop for the cap tracker to be used
 BASELINE_FRAMES = 40     # rolling window for the resting cap height / idle motion
 LOUD_AMBIENT_DB = -32.0  # ambient above this means music/ambience is on and will bury the splash
@@ -1206,6 +1207,10 @@ class FishingBot:
         With the addon the answer is definitive: a loot window opened, or it
         did not. If the cursor is already parked on the bobber we only click.
         """
+        if click_pos is None:
+            self.log(f"{why} -- no bobber position, not clicking.")
+            return False, 0.0
+
         if self.addon is not None:
             self.log(f"{why} -- clicking bobber at {click_pos}")
             if self.hovering and self.addon_state(sct) and self.addon["bobber"]:
@@ -1244,7 +1249,7 @@ class FishingBot:
         self.log(f"{why} -- clicking bobber at {click_pos}")
         self.send_mouse_click(*click_pos)
         still_there, cc_conf, fresh = self.bobber_still_there(sct, click_pos, tracked_conf)
-        if still_there and retry:
+        if still_there and retry and fresh is not None:
             self.log(f"Bobber still there -- clicking again at {fresh}")
             self.send_mouse_click(*fresh)
             still_there, cc_conf, _ = self.bobber_still_there(sct, fresh, tracked_conf)
@@ -1556,9 +1561,13 @@ class FishingBot:
                     if rise >= 6.0:
                         self.heard_sound = True
                 if rise is not None and rise < need_rise:
+                    # Must not fall through: this branch used to leave `rise` set,
+                    # and the click below then fired on every sample, including
+                    # sounds quieter than the room.
                     if rise >= need_rise - NEAR_MISS_DB and now - last_near_miss >= 1.0:
                         self.log(f"Heard a +{rise:.0f} dB spike at {at:.1f}s, below the +{need_rise:.0f} dB needed.")
                         last_near_miss = now
+                    rise = None
                 elif rise is not None:
                     if bobber_pos is None:
                         blind_splashes += 1
@@ -1620,7 +1629,16 @@ class FishingBot:
                                 shrink = 1.0 - area / float(area_med)
                                 cap_dip_peak = max(cap_dip_peak, dip)
                                 cap_shrink_peak = max(cap_shrink_peak, shrink)
-                                weak = dip >= max(CAP_DIP_WEAK, spread + 2) or shrink >= CAP_SHRINK_WEAK
+                                splash_open = (pending_sound and now - pending_sound <= MOTION_SOUND_WINDOW) or (
+                                    last_sound and now - last_sound <= MOTION_SOUND_WINDOW
+                                    and last_sound_rise >= need_rise - 3.0)
+                                # Without a splash the cap has to really go under, or sparkle
+                                # and a small bob click. With a splash, the 3 px / 42% dips in
+                                # the logs were the bite and the fish then got away.
+                                if splash_open:
+                                    weak = dip >= max(2.0, spread) or shrink >= CAP_SHRINK_WITH_SPLASH
+                                else:
+                                    weak = dip >= max(CAP_DIP_WEAK, spread + 2) or shrink >= CAP_SHRINK_WEAK
                                 strong = dip >= max(CAP_DIP_STRONG, spread + 5) or shrink >= CAP_SHRINK_STRONG
                                 # A one-frame red flicker is not a plunge; it has to hold.
                                 instant = strong and vis_run >= 2
@@ -1662,7 +1680,11 @@ class FishingBot:
                             if why is not None:
                                 pending_sound = pending_motion = 0.0
 
-                if why is not None or (rise is not None and not self.hovering):
+                if why is not None or (rise is not None and rise >= need_rise and not self.hovering):
+                    if bobber_pos is None:
+                        self.log(f"{why or 'Splash'} but no bobber position -- not clicking.")
+                        time.sleep(0.3)
+                        continue
                     if why is None:
                         why = f"Splash +{rise:.0f} dB over ambient ({band} band) at {at:.1f}s"
                         rise_fired = rise
@@ -1721,6 +1743,11 @@ class FishingBot:
         return "timeout"
 
     def fishing_bot(self, sct):
+        if self.mode == "sound" and self.splash_db > 20:
+            self.log(
+                f"Splash threshold is +{self.splash_db:.0f} dB. Real bites are usually +8 to +20 over ambient; "
+                "set that field back to 8 or the bot will wait out almost every cast."
+            )
         start_time = time.time()
         self.deadline = start_time + self.run_duration
         casts = caught = misses = 0

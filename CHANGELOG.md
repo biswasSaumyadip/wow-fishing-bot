@@ -7,9 +7,28 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.11.0 — 2026-10-05
+## 1.11.2 — 2026-10-17
 
 Current build.
+
+- A splash and the cap losing about a third of its area now counts as the bite.
+  The old rule wanted 55% gone, so a +23 dB splash with the cap 42% under was
+  logged as someone else's bite and the channel then ended with the fish gone.
+  The sound and the dip may be up to 1.5 s apart.
+
+## 1.11.1 — 2026-10-17
+
+- A sound below the splash threshold no longer clicks. The quiet branch left
+  the measured rise in place, so every sample, including sounds quieter than
+  the room (`+-27 dB`), fell through into the click. That is what made WoW
+  Forever look like it was catching on nothing, and it crashed with
+  `send_mouse_click() argument after * must be an iterable, not NoneType`
+  when the model had no bobber position.
+- A click with no position is refused. The second click is skipped when the
+  fresh position is missing.
+- Warns when the splash field is above +20 dB.
+
+## 1.11.0 — 2026-10-05
 
 - Bite trigger tracks the bobber's red cap (height and how much of it is
   visible) instead of the average change in a square. Sparkle and ripples are

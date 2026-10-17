@@ -1,6 +1,6 @@
 # WoW Fishing Bot (YOLO + debug GUI)
 
-**Version 1.11.0** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
+**Version 1.11.2** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
 
 Windows-only desktop tool: watches one or more World of Warcraft client windows,
 casts fishing, uses a YOLO model (`best.pt`, classes `Bobber` / `CatchClick`)
