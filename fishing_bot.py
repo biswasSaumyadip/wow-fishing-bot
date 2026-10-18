@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.12.3"
+__version__ = "1.12.4"
 
 import os
 import sys
@@ -104,7 +104,6 @@ VERIFY_RADIUS = 90    # px: a box this close to the click position means "bobber
 VERIFY_MIN_CONF = 0.25  # ignore very weak boxes during that check (e.g. the loot window popping up)
 VERIFY_REL_CONF = 0.5   # ...and boxes far weaker than the bobber we were tracking
 NEAR_MISS_DB = 4.0    # log spikes within this many dB below the trigger, so the margin can be tuned
-FOREVER_SPLASH_CAP = 20.0  # WoW Forever bites in the logs are +20 to +43; a higher field was skipping them
 BOBBER_MIN_CONF = 0.35  # minimum confidence (either class) to trust a position fix -- and to click it
 AMBIENT_FLOOR_DB = -60.0  # never measure "rise" from dead silence (WoW muted in background)
 TRACK_INTERVAL = 0.4  # seconds between bobber position updates in sound mode
@@ -1448,16 +1447,6 @@ class FishingBot:
             # looks like a huge rise over it. Demand a louder one.
             need_rise = max(need_rise, 18.0)
 
-        if self.client_kind == "forever" and need_rise > FOREVER_SPLASH_CAP:
-            if not getattr(self, "_warned_forever_cap", False):
-                self._warned_forever_cap = True
-                self.log(
-                    f"Splash field is +{self.splash_db:.0f}. On WoW Forever a splash of "
-                    f"+{FOREVER_SPLASH_CAP:.0f} dB catches. The bites in this log are about +40, "
-                    "and a higher field was skipping them."
-                )
-            need_rise = FOREVER_SPLASH_CAP
-
         if bobber_pos is None and self.addon is None and not self.forever_hook:
             self.log(
                 "Bobber not found on screen after cast. Zoom the camera in and tilt it down so the bobber "
@@ -1791,10 +1780,10 @@ class FishingBot:
                     if caught:
                         return "caught"
                     if self.forever_hook:
-                        # Same threshold. Raising it turned a +43 bite into "next one needs +46"
-                        # and the rest of the cast went quiet. Ignore this splash's tail.
+                        # One press per splash. The same bite was measured again a second
+                        # later (+44, then +25) and each one pressed the key.
                         last_audio_check = time.time()
-                        time.sleep(1.0)
+                        time.sleep(4.0)
                         continue
                     # The retry already covered a click that merely missed, so
                     # this sound was not the bite. The real one can still come
@@ -1842,7 +1831,7 @@ class FishingBot:
         return "timeout"
 
     def fishing_bot(self, sct):
-        if self.mode == "sound" and self.splash_db > 20:
+        if self.mode == "sound" and self.splash_db > 20 and self.client_kind != "forever":
             self.log(
                 f"Splash threshold is +{self.splash_db:.0f} dB. Real bites are usually +8 to +20 over ambient; "
                 "set that field back to 8 or the bot will wait out almost every cast."

@@ -7,9 +7,18 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.12.3 — 2026-10-18
+## 1.12.4 — 2026-10-18
 
 Current build.
+
+- WoW Forever uses the splash field again. 1.12.3 lowered a +43 field to
+  +20, so water and the tail of a splash (+20 to +31) pressed Interact. The
+  bite in these logs is the +42 to +44 spike. A spike that rounds to the
+  field still counts, so a +43 reading is not rejected as below +43.
+- One splash presses the key once. The next four seconds are ignored, so the
+  same bite cannot press Interact five times.
+
+## 1.12.3 — 2026-10-18
 
 - On WoW Forever a splash presses the Interact key with a real keypress.
   A posted key message was not firing Interact. The mouse is not used, and
