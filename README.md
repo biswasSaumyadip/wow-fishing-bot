@@ -1,6 +1,6 @@
 # WoW Fishing Bot (YOLO + debug GUI)
 
-**Version 1.12.5** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
+**Version 1.12.6** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
 
 Windows-only desktop tool: watches one or more World of Warcraft client windows,
 casts fishing, uses a YOLO model (`best.pt`, classes `Bobber` / `CatchClick`)
@@ -129,11 +129,11 @@ WoW Forever listens for the splash and then catches.
 - **Interact key blank.** The same splash clicks the bobber instead.
 
 The splash field is the catch line. With the room measuring as silence, the
-bobber splash in these logs is about **+42 to +44 dB** and the quieter water
-is about +20 to +31. A field of +43 lets the splash through and leaves the
-quieter sounds alone. One splash presses the key once, then the bot recasts.
-FishBotLink is not required on Forever. The field is ignored when the client
-is not Forever.
+bobber splash is about **+39 to +44 dB** and the quieter water is about +20
+to +31. A field of +43 presses the key from **+39**, so a bite that peaks
+just under the field is reeled, and the water is not. One splash presses the
+key once, the hook is given 2 seconds, then the bot recasts. FishBotLink is
+not required on Forever. The field is ignored when the client is not Forever.
 
 ## Where and how to stand
 

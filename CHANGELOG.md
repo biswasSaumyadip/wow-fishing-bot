@@ -7,9 +7,20 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.12.5 — 2026-10-18
+## 1.12.6 — 2026-10-18
 
 Current build.
+
+- A WoW Forever bite that peaks a few dB under the splash field now presses
+  the catch key. With the field at +43 the log was full of `+39` and `+40`
+  "below the +43 needed" and the cast ended without a key press. The key
+  is pressed from +39. Water at +20 to +31 is still ignored.
+- The catch key is posted into the WoW window as well as sent to the
+  foreground. A foreground scan code alone was easy to lose when the bot
+  window was in front, so the splash was heard and the character never
+  reeled. The next cast waits 2 seconds so the hook can finish.
+
+## 1.12.5 — 2026-10-18
 
 - WoW Forever does not need FishBotLink. A splash presses Interact and the
   next cast starts. The "addon not detected" line is not logged on that

@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.12.5"
+__version__ = "1.12.6"
 
 import os
 import sys
@@ -1032,15 +1032,24 @@ class FishingBot:
         time.sleep(0.08)
 
     def send_real_key(self, key):
-        """Foreground keypress. Interact does not fire from PostMessage."""
+        """
+        Catch key. A scan code goes to the foreground window, and the same key
+        is posted into the WoW window. The cast key already arrives that way.
+        A scan code alone lands on the bot window when WoW is not in front,
+        which is a listen with no reel.
+        """
         vk = win32api.VkKeyScan(key) & 0xFF
         if vk in (0, 0xFF):
             self.log(f"Key '{key_display(key) or key}' cannot be sent.")
             return False
         scan = win32api.MapVirtualKey(vk, 0) & 0xFF
+        down_lparam = 1 | (scan << 16)
+        up_lparam = down_lparam | (1 << 30) | (1 << 31)
         _send_inputs(scan_key_input(scan))
-        time.sleep(0.06)
+        win32api.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, down_lparam)
+        time.sleep(0.15)
         _send_inputs(scan_key_input(scan, up=True))
+        win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, up_lparam)
         return True
 
     def send_mouse_click(self, x, y):
@@ -1245,11 +1254,12 @@ class FishingBot:
         shown = key_display(self.interact_key)
         self.log(f"{why} -- pressing Interact '{shown}'")
         with self.click_lock:
-            force_foreground(self.hwnd)
+            if not force_foreground(self.hwnd):
+                self.log("WoW did not come to the front. The catch key is also sent straight into the game window.")
             self.send_real_key(self.interact_key)
         if self.addon is None:
-            self.log("Interact pressed. Recasting.")
-            time.sleep(0.4)
+            self.log("Interact pressed. Holding for the hook, then recasting.")
+            time.sleep(2.0)
             return True, 0.0
         if self.wait_for_loot(sct):
             self.log("CLICKED SPLASH! Loot window opened -> catch.")
@@ -1448,6 +1458,19 @@ class FishingBot:
             # The floor is a stand-in for "we measured silence", so a small sound
             # looks like a huge rise over it. Demand a louder one.
             need_rise = max(need_rise, 18.0)
+
+        if self.forever_hook and need_rise - NEAR_MISS_DB >= 35:
+            # The typed field stays in the form. Bites in the Forever log peak
+            # a few dB under it (+39 to +41 when the field is +43) and were
+            # only written down. Water in the same logs is +20 to +31.
+            catch_at = need_rise - NEAR_MISS_DB
+            if not getattr(self, "_warned_forever_margin", False):
+                self._warned_forever_margin = True
+                self.log(
+                    f"Catch key is pressed from +{catch_at:.0f} dB. The field is +{need_rise:.0f}. "
+                    "A +39 to +41 splash is the bite and was only being logged."
+                )
+            need_rise = catch_at
 
         if bobber_pos is None and self.addon is None and not self.forever_hook:
             self.log(
