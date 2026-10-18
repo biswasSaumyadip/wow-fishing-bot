@@ -7,9 +7,22 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.12.2 — 2026-10-18
+## 1.12.3 — 2026-10-18
 
 Current build.
+
+- On WoW Forever a splash presses the Interact key with a real keypress.
+  A posted key message was not firing Interact. The mouse is not used, and
+  moving the mouse no longer pauses listening.
+- If the Interact field is blank, the same splash clicks the bobber instead.
+- A splash field above +20 (the log had +43) no longer skips bites of about
+  +40. On Forever the catch line is +20 dB. A spike that rounds to the
+  required number counts, so "+43 below +43" cannot happen.
+- After the key is pressed the threshold stays put. It was climbing to +46
+  and then ignoring the rest of the cast. The model is not run on this path,
+  so there is no "bobber not found" line.
+
+## 1.12.2 — 2026-10-18
 
 - WoW Forever detection covers the beta and the release. Beta stays
   `WowB.exe` or the `_classic_beta_` folder. The release client is the

@@ -1,6 +1,6 @@
 # WoW Fishing Bot (YOLO + debug GUI)
 
-**Version 1.12.2** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
+**Version 1.12.3** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
 
 Windows-only desktop tool: watches one or more World of Warcraft client windows,
 casts fishing, uses a YOLO model (`best.pt`, classes `Bobber` / `CatchClick`)
@@ -119,17 +119,18 @@ and Task Manager shows the same name, so those two strings are not the test.
 A Legion client (`wow-64.exe`), retail (`Wow.exe` in `_retail_`), and Classic
 (`_classic_` or `_classic_era_`) log `Client: other WoW` and keep the mouse sweep.
 
-WoW Forever can hook the bobber with the Interact key (Options > Controls >
-Enable Interact Key) instead of a click. Put that key in **Interact key**.
-A splash then presses it; the mouse is not moved. FishBotLink still has to be
-loaded so the loot pixel can confirm the catch. Face the water and clear your
-current target, or Interact talks to whatever you have selected. If the bobber
-is too far for the soft target, Interact does nothing and the log says
-`Interact pressed, no loot`.
+WoW Forever listens for the splash and then catches.
 
-Leave **Interact key** blank and Forever keeps the mouse click, same as any
-other client. The field is ignored when the client is not Forever. Type
-`space` to use the space bar. Set the splash field back to **8**.
+- **Interact key filled in.** The splash presses that key. The mouse is not
+  moved, and moving the mouse does not pause the bot. This is a real keypress;
+  posting the key into the window does not fire Interact. Face the water, clear
+  your target, and turn on Options > Controls > Enable Interact Key. Type
+  `space` in the field to use the space bar.
+- **Interact key blank.** The same splash clicks the bobber instead.
+
+On Forever the catch line is **+20 dB**. A splash field of +43 was ignoring
+bites of about +40. FishBotLink still confirms the catch from the loot pixel.
+The field is ignored when the client is not Forever.
 
 ## Where and how to stand
 

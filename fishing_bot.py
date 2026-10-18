@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.12.2"
+__version__ = "1.12.3"
 
 import os
 import sys
@@ -104,6 +104,7 @@ VERIFY_RADIUS = 90    # px: a box this close to the click position means "bobber
 VERIFY_MIN_CONF = 0.25  # ignore very weak boxes during that check (e.g. the loot window popping up)
 VERIFY_REL_CONF = 0.5   # ...and boxes far weaker than the bobber we were tracking
 NEAR_MISS_DB = 4.0    # log spikes within this many dB below the trigger, so the margin can be tuned
+FOREVER_SPLASH_CAP = 20.0  # WoW Forever bites in the logs are +20 to +43; a higher field was skipping them
 BOBBER_MIN_CONF = 0.35  # minimum confidence (either class) to trust a position fix -- and to click it
 AMBIENT_FLOOR_DB = -60.0  # never measure "rise" from dead silence (WoW muted in background)
 TRACK_INTERVAL = 0.4  # seconds between bobber position updates in sound mode
@@ -190,6 +191,7 @@ MOUSEEVENTF_RIGHTUP = 0x0010
 MOUSEEVENTF_ABSOLUTE = 0x8000
 MOUSEEVENTF_VIRTUALDESK = 0x4000
 KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_SCANCODE = 0x0008
 VK_SHIFT = 0x10
 VK_MENU = 0x12
 VK_SPACE = 0x20
@@ -251,6 +253,21 @@ def key_input(vk, up=False):
     inp = INPUT(type=INPUT_KEYBOARD)
     inp.ki = KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP if up else 0, 0, None)
     return inp
+
+
+def scan_key_input(scan, up=False):
+    """Hardware scan code. WoW's Interact binding ignores a posted key message."""
+    inp = INPUT(type=INPUT_KEYBOARD)
+    flags = KEYEVENTF_SCANCODE | (KEYEVENTF_KEYUP if up else 0)
+    inp.ki = KEYBDINPUT(0, scan, flags, 0, None)
+    return inp
+
+
+def splash_loud_enough(rise, need):
+    """True when the spike rounds to at least the required dB. 42.6 must not print as +43 and then be rejected."""
+    if rise is None:
+        return False
+    return round(float(rise)) >= round(float(need))
 
 
 def move_mouse_absolute(screen_x, screen_y):
@@ -509,8 +526,8 @@ class FishingBot:
         if self.client_kind == "forever" and self.interact_key:
             self.log(f"WoW Forever hook: splash presses Interact key '{self.interact_key}'. The mouse is not used.")
         elif self.client_kind == "forever":
-            self.log("WoW Forever detected, but Interact key is blank, so the bot will click the bobber. "
-                     "Bind Interact in WoW and put that key in the Interact field.")
+            self.log("WoW Forever detected, and Interact key is blank, so a splash will click the bobber. "
+                     "Put the Interact key in that field to catch with the key instead.")
         elif self.interact_key:
             self.log("Interact key is set, but this is not a WoW Forever client, so the bot keeps clicking the bobber.")
         self.lure_key = str(self.settings.get("lure_key") or "").strip()[:1]
@@ -1015,6 +1032,18 @@ class FishingBot:
         win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, up_lparam)
         time.sleep(0.08)
 
+    def send_real_key(self, key):
+        """Foreground keypress. Interact does not fire from PostMessage."""
+        vk = win32api.VkKeyScan(key) & 0xFF
+        if vk in (0, 0xFF):
+            self.log(f"Key '{key_display(key) or key}' cannot be sent.")
+            return False
+        scan = win32api.MapVirtualKey(vk, 0) & 0xFF
+        _send_inputs(scan_key_input(scan))
+        time.sleep(0.06)
+        _send_inputs(scan_key_input(scan, up=True))
+        return True
+
     def send_mouse_click(self, x, y):
         """(x, y) are client-area coordinates from the captured frame."""
         screen_x, screen_y = win32gui.ClientToScreen(self.hwnd, (int(x), int(y)))
@@ -1214,12 +1243,13 @@ class FishingBot:
 
     def reel(self, sct, why):
         """WoW Forever: the Interact key hooks the soft-targeted bobber. No mouse."""
-        self.log(f"{why} -- pressing Interact '{self.interact_key}'")
+        shown = key_display(self.interact_key)
+        self.log(f"{why} -- pressing Interact '{shown}'")
         with self.click_lock:
             force_foreground(self.hwnd)
-            self.send_key(self.interact_key)
+            self.send_real_key(self.interact_key)
         if self.addon is None:
-            self.log("Interact pressed. FishBotLink is not loaded, so this catch is not confirmed.")
+            self.log("Interact pressed. FishBotLink is not loaded, so this catch is not confirmed. Still listening.")
             return False, 0.0
         if self.wait_for_loot(sct):
             self.log("CLICKED SPLASH! Loot window opened -> catch.")
@@ -1418,7 +1448,17 @@ class FishingBot:
             # looks like a huge rise over it. Demand a louder one.
             need_rise = max(need_rise, 18.0)
 
-        if bobber_pos is None and self.addon is None:
+        if self.client_kind == "forever" and need_rise > FOREVER_SPLASH_CAP:
+            if not getattr(self, "_warned_forever_cap", False):
+                self._warned_forever_cap = True
+                self.log(
+                    f"Splash field is +{self.splash_db:.0f}. On WoW Forever a splash of "
+                    f"+{FOREVER_SPLASH_CAP:.0f} dB catches. The bites in this log are about +40, "
+                    "and a higher field was skipping them."
+                )
+            need_rise = FOREVER_SPLASH_CAP
+
+        if bobber_pos is None and self.addon is None and not self.forever_hook:
             self.log(
                 "Bobber not found on screen after cast. Zoom the camera in and tilt it down so the bobber "
                 "is large and near the middle of the screen; the model cannot see a far-away dot. "
@@ -1427,7 +1467,14 @@ class FishingBot:
             if self.last_frame is not None:
                 self.save_debug_frame(self.last_frame, "no_bobber")
         if self.mode == "sound":
-            trigger = "trigger: bobber motion + splash sound" if self.hovering else "trigger: splash sound"
+            if self.forever_hook:
+                trigger = f"splash, then Interact '{key_display(self.interact_key)}'"
+            elif self.client_kind == "forever":
+                trigger = "splash, then click (Interact key is blank)"
+            elif self.hovering:
+                trigger = "bobber motion + splash sound"
+            else:
+                trigger = "splash sound"
             self.log(
                 f"Watching ({trigger}). bobber at {bobber_pos} via {bobber_src} conf={bobber_conf:.2f}, "
                 f"ambient {ambient['full']:.0f} dB, splash needs +{need_rise:.0f} dB, "
@@ -1462,7 +1509,9 @@ class FishingBot:
         while time.time() - cast_start < self.watch_seconds:
             if not self.window_alive():
                 return "window_closed"
-            if self.mouse_taken(anchor):
+            # The catch key does not use the cursor, so moving the mouse must not
+            # pause listening. Pausing here was dropping the splash.
+            if not self.forever_hook and self.mouse_taken(anchor):
                 anchor = self.wait_until_mouse_still()
                 last_audio_check = time.time()
             now = time.time()
@@ -1538,7 +1587,8 @@ class FishingBot:
 
             # Vision: every frame in vision mode, periodically in sound mode
             # (only needed to keep the bobber position current there).
-            if self.mode == "vision" or (now - last_track >= TRACK_INTERVAL and not self.hovering):
+            # Forever with a catch key never looks for the bobber.
+            if not self.forever_hook and (self.mode == "vision" or (now - last_track >= TRACK_INTERVAL and not self.hovering)):
                 det = self.scan(sct, around=bobber_pos)
                 if det is None:
                     time.sleep(0.5)
@@ -1599,7 +1649,7 @@ class FishingBot:
                     top_rise = rise if top_rise is None else max(top_rise, rise)
                     if rise >= 6.0:
                         self.heard_sound = True
-                if rise is not None and rise < need_rise:
+                if rise is not None and not splash_loud_enough(rise, need_rise):
                     # Must not fall through: this branch used to leave `rise` set,
                     # and the click below then fired on every sample, including
                     # sounds quieter than the room.
@@ -1723,7 +1773,7 @@ class FishingBot:
                             if why is not None:
                                 pending_sound = pending_motion = 0.0
 
-                if why is not None or (rise is not None and rise >= need_rise and (self.forever_hook or not self.hovering)):
+                if why is not None or (rise is not None and splash_loud_enough(rise, need_rise) and (self.forever_hook or not self.hovering)):
                     if bobber_pos is None and not self.forever_hook:
                         self.log(f"{why or 'Splash'} but no bobber position -- not clicking.")
                         time.sleep(0.3)
@@ -1740,14 +1790,18 @@ class FishingBot:
                     rise = rise_fired
                     if caught:
                         return "caught"
+                    if self.forever_hook:
+                        # Same threshold. Raising it turned a +43 bite into "next one needs +46"
+                        # and the rest of the cast went quiet. Ignore this splash's tail.
+                        last_audio_check = time.time()
+                        time.sleep(1.0)
+                        continue
                     # The retry already covered a click that merely missed, so
                     # this sound was not the bite. The real one can still come
                     # this cast, and it will be louder than what just fired.
                     self.stat("false")
                     need_rise = rise + 3.0
-                    if self.forever_hook:
-                        self.log(f"Still watching this cast. Next splash must be +{need_rise:.0f} dB.")
-                    elif self.addon is not None:
+                    if self.addon is not None:
                         self.log("No loot from that click -> not our bite. (An early click on the bobber usually "
                                  "ends the cast; if the channel drops now, that is why.)")
                     else:
