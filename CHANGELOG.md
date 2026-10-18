@@ -7,9 +7,21 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.12.1 — 2026-10-18
+## 1.12.2 — 2026-10-18
 
 Current build.
+
+- WoW Forever detection covers the beta and the release. Beta stays
+  `WowB.exe` or the `_classic_beta_` folder. The release client is the
+  `_forever_` flavor folder, a `WowForever.exe`, or a build still using the
+  `camelot` codename. If the folder name is none of those, the `Product`
+  column in `.build.info` next to the exe is used (`wow_forever`,
+  `wow_camelot`, `wow_classic_beta`).
+- Retail (`_retail_`), Classic (`_classic_`, `_classic_era_`), and a Legion
+  `wow-64.exe` stay other WoW. The log says which one matched:
+  `WoW Forever beta` or `WoW Forever release`.
+
+## 1.12.1 — 2026-10-18
 
 - WoW Forever is recognised when the window title and the process name are
   both just `World of Warcraft`. The beta is `WowB.exe` in

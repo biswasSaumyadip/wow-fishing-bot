@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.12.1"
+__version__ = "1.12.2"
 
 import os
 import sys
@@ -1845,7 +1845,7 @@ def run_bot(instance_id, hwnd, run_duration, debug_queue, click_lock, settings):
 
 
 # ====================== WINDOW DISCOVERY ======================
-KNOWN_WOW_EXES = ('wow.exe', 'wowclassic.exe', 'wow-64.exe', 'wowt.exe', 'wowb.exe', 'wowclassict.exe')
+KNOWN_WOW_EXES = ('wow.exe', 'wowclassic.exe', 'wow-64.exe', 'wowt.exe', 'wowb.exe', 'wowclassict.exe', 'wowforever.exe')
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
@@ -1903,25 +1903,79 @@ def key_display(raw):
     return key
 
 
-def forever_reason(path, title):
-    """
-    Why this window is WoW Forever, or '' for any other client.
+def _path_parts(path):
+    return [part for part in str(path or "").replace("/", "\\").split("\\") if part]
 
-    The window title is 'World of Warcraft' and Task Manager shows the same
-    name. The beta does not put 'forever' in either. It is WowB.exe inside
-    World of Warcraft\\_classic_beta_. A Legion client (wow-64.exe) and retail
-    (Wow.exe in _retail_) stay other.
+
+def _words(text):
+    return [w for w in str(text or "").lower().replace("_", " ").replace("-", " ").split() if w]
+
+
+def products_from_build_info(text):
+    """Product column from a .build.info file. Header names are before the ! type."""
+    lines = str(text or "").splitlines()
+    if len(lines) < 2:
+        return []
+    headers = [col.split("!")[0].strip().lower() for col in lines[0].split("|")]
+    try:
+        index = headers.index("product")
+    except ValueError:
+        return []
+    products = []
+    for line in lines[1:]:
+        cols = line.split("|")
+        if index < len(cols) and cols[index].strip():
+            products.append(cols[index].strip().lower())
+    return products
+
+
+def read_build_products(path):
     """
-    # Windows paths: split on backslash so this stays right even if the
-    # check is ever run somewhere os.sep is not '\'.
-    exe = str(path or "").replace("/", "\\").rsplit("\\", 1)[-1].lower()
-    if exe == "wowb.exe":
-        return "WowB.exe beta client"
-    blob = f"{path or ''} {title or ''}".lower().replace("_", " ").replace("-", " ")
-    if "classic beta" in blob:
-        return "_classic_beta_ folder"
-    if "forever" in blob:
-        return "path or title contains forever"
+    Product codes from the .build.info sitting next to the exe (wow,
+    wow_classic, wow_classic_beta, ...). Missing or unreadable means [].
+    """
+    parts = _path_parts(path)
+    if len(parts) < 2:
+        return []
+    info_path = "\\".join(parts[:-1]) + "\\.build.info"
+    try:
+        with open(info_path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read(200000)
+    except Exception:
+        return []
+    return products_from_build_info(text)
+
+
+def forever_reason(path, title, build_products=()):
+    """
+    'WoW Forever beta', 'WoW Forever release', or '' for any other client.
+
+    The window title and the process description are both 'World of Warcraft'.
+    Beta is WowB.exe in World of Warcraft\\_classic_beta_. The release client
+    is a different flavor folder (the live name is _forever_, and builds still
+    on the camelot codename keep that). Retail (_retail_), Classic (_classic_),
+    and a Legion wow-64.exe stay other.
+    """
+    parts = _path_parts(path)
+    exe = parts[-1].lower() if parts else ""
+    folder_words = []
+    for part in parts[:-1]:
+        folder_words.extend(_words(part))
+    folder_words = set(folder_words)
+    title_words = set(_words(title))
+
+    beta_folder = {"classic", "beta"} <= folder_words or {"forever", "beta"} <= folder_words or {"camelot", "beta"} <= folder_words
+    if exe == "wowb.exe" or beta_folder or {"forever", "beta"} <= title_words or {"camelot", "beta"} <= title_words:
+        return "WoW Forever beta"
+    if exe == "wowforever.exe" or "forever" in folder_words or "camelot" in folder_words or "forever" in title_words or "camelot" in title_words:
+        return "WoW Forever release"
+
+    for product in build_products:
+        words = set(_words(product))
+        if "forever" in words or "camelot" in words or {"classic", "beta"} <= words:
+            if "beta" in words:
+                return "WoW Forever beta"
+            return "WoW Forever release"
     return ""
 
 
@@ -1942,7 +1996,7 @@ def client_kind(hwnd):
         path = process_image_path(pid)
     except Exception:
         path = ""
-    reason = forever_reason(path, title)
+    reason = forever_reason(path, title, read_build_products(path))
     kind = "forever" if reason else "other"
     return kind, path, reason
 
@@ -1989,7 +2043,7 @@ def find_wow_windows(debug_log=None):
         except Exception as e:
             log(f"[find_wow_windows] Could not read exe for '{title}' (hwnd={hwnd}): {e}")
 
-        reason = forever_reason(image_path, title)
+        reason = forever_reason(image_path, title, read_build_products(image_path))
         kind = "WoW Forever" if reason else "other WoW"
         why = f" ({reason})" if reason else ""
         where = image_path or "install path could not be read"
