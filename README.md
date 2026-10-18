@@ -1,6 +1,6 @@
 # WoW Fishing Bot (YOLO + debug GUI)
 
-**Version 1.11.2** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
+**Version 1.12.0** — see `CHANGELOG.md`. The number is `__version__` in `fishing_bot.py` and is printed in the window title and the first line of the debug log.
 
 Windows-only desktop tool: watches one or more World of Warcraft client windows,
 casts fishing, uses a YOLO model (`best.pt`, classes `Bobber` / `CatchClick`)
@@ -103,6 +103,27 @@ next cast cannot start while it is open. If the sweep logs that it never saw the
 tooltip, the bobber landed outside the swept area (middle 70% of the width, 20–75%
 of the height): tilt the camera so the water fills the centre of the screen.
 
+## WoW Forever and other clients
+
+On START the log names the client. Forever and a normal Legion (or any other)
+client use the same exe (`wow-64.exe`, sometimes `wowb.exe`) and the same
+window title, so the bot reads the **install path**. If that path or the
+window title contains `forever` (`WoW Forever`, `wowforever`, `WoW-Forever`),
+the line is `Client: WoW Forever — E:\...\Wow.exe`. Otherwise it is
+`Client: other WoW` and fishing stays on the mouse sweep.
+
+WoW Forever can hook the bobber with the Interact key (Options > Controls >
+Enable Interact Key) instead of a click. Put that key in **Interact key**.
+A splash then presses it; the mouse is not moved. FishBotLink still has to be
+loaded so the loot pixel can confirm the catch. Face the water and clear your
+current target, or Interact talks to whatever you have selected. If the bobber
+is too far for the soft target, Interact does nothing and the log says
+`Interact pressed, no loot`.
+
+Leave **Interact key** blank and Forever keeps the mouse click, same as any
+other client. The field is ignored when the client is not Forever. Type
+`space` to use the space bar. Set the splash field back to **8**.
+
 ## Where and how to stand
 
 - **Fish alone.** Sound mode listens for the bobber splash, and another player's
@@ -168,6 +189,8 @@ hasn't bitten does nothing, and the verification step tells each bot whether
 
 | Message | Meaning |
 | --- | --- |
+| `Client: WoW Forever — E:\...\Wow.exe` | Install path or title contains `forever`. With an Interact key set, a splash presses that key. |
+| `Client: other WoW — C:\...\Wow.exe` | Not Forever. The bot sweeps and clicks. An Interact key in the form is ignored. |
 | `Listening to 'Speakers (...)'` | Loopback capture started on that output device. WoW must play through it. |
 | `Watching (sound). bobber at (537,176) via bobber conf=0.91, ambient -38 dB, splash needs +8 dB` | Bobber located; a spike 8 dB over the ambient counts as the splash. |
 | `No audio reaching the loopback device` | Nothing is playing: enable "Sound in Background" in WoW or check the output device. |

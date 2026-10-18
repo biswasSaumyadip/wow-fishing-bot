@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.11.2"
+__version__ = "1.12.0"
 
 import os
 import sys
@@ -163,6 +163,7 @@ DEFAULTS = {
     "min_bite_delay": 4.0,
     "required_hits": 2,
     "cast_key": "1",
+    "interact_key": "",   # WoW Forever only: key bound to Interact. Blank keeps the mouse click.
     "lure_key": "",
     "lure_minutes": 10.0,
     "anti_afk_minutes": 3.0,  # jump between casts this often so the game never flags you AFK; 0 = off
@@ -498,6 +499,19 @@ class FishingBot:
         self.min_bite_delay = float(self.settings["min_bite_delay"])
         self.required_hits = max(1, int(self.settings["required_hits"]))
         self.cast_key = str(self.settings["cast_key"])[:1] or "1"
+        self.interact_key = normalize_key(self.settings.get("interact_key"))
+        self.client_kind, self.client_path = client_kind(hwnd)
+        self.forever_hook = self.client_kind == "forever" and bool(self.interact_key)
+        kind_label = "WoW Forever" if self.client_kind == "forever" else "other WoW"
+        where = self.client_path or "install path could not be read"
+        self.log(f"Client: {kind_label} — {where}")
+        if self.client_kind == "forever" and self.interact_key:
+            self.log(f"WoW Forever hook: splash presses Interact key '{self.interact_key}'. The mouse is not used.")
+        elif self.client_kind == "forever":
+            self.log("WoW Forever detected, but Interact key is blank, so the bot will click the bobber. "
+                     "Bind Interact in WoW and put that key in the Interact field.")
+        elif self.interact_key:
+            self.log("Interact key is set, but this is not a WoW Forever client, so the bot keeps clicking the bobber.")
         self.lure_key = str(self.settings.get("lure_key") or "").strip()[:1]
         self.lure_minutes = max(float(self.settings.get("lure_minutes") or DEFAULTS["lure_minutes"]), 0.5)
         self.miss_limit = max(0, int(float(self.settings.get("miss_limit", DEFAULTS["miss_limit"]))))
@@ -1197,6 +1211,23 @@ class FishingBot:
                 time.sleep(0.25)
         return True, cc_conf, pos
 
+    def reel(self, sct, why):
+        """WoW Forever: the Interact key hooks the soft-targeted bobber. No mouse."""
+        self.log(f"{why} -- pressing Interact '{self.interact_key}'")
+        with self.click_lock:
+            force_foreground(self.hwnd)
+            self.send_key(self.interact_key)
+        if self.addon is None:
+            self.log("Interact pressed. FishBotLink is not loaded, so this catch is not confirmed.")
+            return False, 0.0
+        if self.wait_for_loot(sct):
+            self.log("CLICKED SPLASH! Loot window opened -> catch.")
+            time.sleep(0.5)
+            return True, 0.0
+        self.log("Interact pressed, no loot. Face the water, clear your target, and turn on "
+                 "Options > Controls > Enable Interact Key. Still watching this cast.")
+        return False, 0.0
+
     def click_and_verify(self, sct, click_pos, why, tracked_conf=0.0, retry=True):
         """
         Click the bobber; True if it disappeared afterwards (real catch). If
@@ -1207,6 +1238,9 @@ class FishingBot:
         With the addon the answer is definitive: a loot window opened, or it
         did not. If the cursor is already parked on the bobber we only click.
         """
+        if self.forever_hook:
+            return self.reel(sct, why)
+
         if click_pos is None:
             self.log(f"{why} -- no bobber position, not clicking.")
             return False, 0.0
@@ -1309,7 +1343,7 @@ class FishingBot:
         # Model-only: calibrate against the idle bobber until the earliest
         # possible bite. Addon: one quick look for a starting guess, then find
         # the bobber for certain with the cursor (bites can come early).
-        while time.time() - cast_start < self.min_bite_delay:
+        while (not self.forever_hook) and time.time() - cast_start < self.min_bite_delay:
             det = self.scan(sct, around=bobber_pos)
             if det is not None:
                 if det["catchclick"]:
@@ -1324,7 +1358,11 @@ class FishingBot:
         # Addon: confirm the model's guess by hovering it, or find the bobber by
         # sweeping the cursor when the model saw nothing. Either way the cursor
         # ends up parked on the bobber, ready to click the instant we hear the splash.
-        if self.addon is not None:
+        if self.forever_hook:
+            self.log(f"Watching for the splash. Interact key '{self.interact_key}' hooks the bobber.")
+            while time.time() - cast_start < self.min_bite_delay:
+                time.sleep(0.05)
+        elif self.addon is not None:
             t0 = time.time()
             # Start where the bobber landed last cast; the model's guess only
             # when there is no history. The model is often wrong here, so a
@@ -1408,7 +1446,7 @@ class FishingBot:
         top_rise = None
         last_near_miss = 0.0
         blind_splashes = 0  # splash-level sounds heard while we had no bobber to click
-        saw_bobber = bobber_pos is not None
+        saw_bobber = bobber_pos is not None or self.forever_hook
         last_track = 0.0
         last_sweep = time.time()
         off_bobber = 0
@@ -1569,7 +1607,11 @@ class FishingBot:
                         last_near_miss = now
                     rise = None
                 elif rise is not None:
-                    if bobber_pos is None:
+                    if self.forever_hook:
+                        # Qualifying splash hooks with Interact. No cursor position
+                        # is required; click_and_verify calls reel().
+                        pass
+                    elif bobber_pos is None:
                         blind_splashes += 1
                         if blind_splashes == 1:
                             self.log(f"Splash +{rise:.0f} dB at {at:.1f}s but no bobber position -- cannot click.")
@@ -1680,8 +1722,8 @@ class FishingBot:
                             if why is not None:
                                 pending_sound = pending_motion = 0.0
 
-                if why is not None or (rise is not None and rise >= need_rise and not self.hovering):
-                    if bobber_pos is None:
+                if why is not None or (rise is not None and rise >= need_rise and (self.forever_hook or not self.hovering)):
+                    if bobber_pos is None and not self.forever_hook:
                         self.log(f"{why or 'Splash'} but no bobber position -- not clicking.")
                         time.sleep(0.3)
                         continue
@@ -1702,7 +1744,9 @@ class FishingBot:
                     # this cast, and it will be louder than what just fired.
                     self.stat("false")
                     need_rise = rise + 3.0
-                    if self.addon is not None:
+                    if self.forever_hook:
+                        self.log(f"Still watching this cast. Next splash must be +{need_rise:.0f} dB.")
+                    elif self.addon is not None:
                         self.log("No loot from that click -> not our bite. (An early click on the bobber usually "
                                  "ends the cast; if the channel drops now, that is why.)")
                     else:
@@ -1804,9 +1848,9 @@ KNOWN_WOW_EXES = ('wow.exe', 'wowclassic.exe', 'wow-64.exe', 'wowt.exe', 'wowb.e
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
-def process_exe_name(pid):
+def process_image_path(pid):
     """
-    Exe file name of a process. Uses QueryFullProcessImageName with limited
+    Full image path of a process. Uses QueryFullProcessImageName with limited
     query rights, which (unlike GetModuleFileNameEx + PROCESS_VM_READ) works
     across 32/64-bit boundaries and for processes we can't fully open.
     """
@@ -1819,13 +1863,70 @@ def process_exe_name(pid):
     if not h:
         raise OSError(f"OpenProcess failed (error {ctypes.GetLastError()})")
     try:
-        buf = ctypes.create_unicode_buffer(1024)
+        buf = ctypes.create_unicode_buffer(32768)
         size = ctypes.c_ulong(len(buf))
         if not k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
             raise OSError(f"QueryFullProcessImageName failed (error {ctypes.GetLastError()})")
-        return os.path.basename(buf.value).lower()
+        return buf.value
     finally:
         k32.CloseHandle(h)
+
+
+def process_exe_name(pid):
+    """Exe file name of a process, lowercased."""
+    return os.path.basename(process_image_path(pid)).lower()
+
+
+def normalize_key(raw):
+    """
+    One key for PostMessage. Blank stays blank. The word 'space', or a stored
+    single space, becomes a space character so VkKeyScan yields VK_SPACE.
+    Anything else keeps its first character.
+    """
+    if raw is None:
+        return ""
+    text = str(raw)
+    stripped = text.strip()
+    if not stripped:
+        return " " if text == " " else ""
+    if stripped.lower() == "space":
+        return " "
+    return stripped[:1]
+
+
+def key_display(raw):
+    """How a stored key is shown in the form. A space reads as the word space."""
+    key = normalize_key(raw)
+    if key == " ":
+        return "space"
+    return key
+
+
+def looks_like_forever(path, title):
+    """
+    WoW Forever and a normal client share wow-64.exe (and sometimes wowb.exe)
+    and the window title 'World of Warcraft', so the exe name is not enough.
+    The install folder or the title is what carries the name.
+    """
+    blob = f"{path or ''} {title or ''}".lower().replace("_", " ").replace("-", " ")
+    return "forever" in blob
+
+
+def client_kind(hwnd):
+    """('forever' or 'other', full image path or '')."""
+    title = ""
+    path = ""
+    try:
+        title = win32gui.GetWindowText(hwnd) or ""
+    except Exception:
+        title = ""
+    try:
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        path = process_image_path(pid)
+    except Exception:
+        path = ""
+    kind = "forever" if looks_like_forever(path, title) else "other"
+    return kind, path
 
 
 def find_wow_windows(debug_log=None):
@@ -1860,25 +1961,29 @@ def find_wow_windows(debug_log=None):
             return
 
         exe_name = None
+        image_path = ""
         try:
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             if pid == my_pid:
                 return
-            exe_name = process_exe_name(pid)
+            image_path = process_image_path(pid)
+            exe_name = os.path.basename(image_path).lower()
         except Exception as e:
             log(f"[find_wow_windows] Could not read exe for '{title}' (hwnd={hwnd}): {e}")
 
+        kind = "WoW Forever" if looks_like_forever(image_path, title) else "other WoW"
+        where = image_path or "install path could not be read"
         if exe_name is None:
             if title_lower.startswith("world of warcraft"):
-                log(f"[find_wow_windows] Accepting '{title}' on exact title (exe unknown).")
+                log(f"[find_wow_windows] Accepting '{title}' on exact title (exe unknown) — {kind}. {where}")
                 res.append(hwnd)
             else:
                 log(f"[find_wow_windows] Rejecting '{title}' -- exe unknown and title not 'World of Warcraft'.")
         elif exe_name in KNOWN_WOW_EXES:
-            log(f"[find_wow_windows] Accepting '{title}' ({exe_name}).")
+            log(f"[find_wow_windows] Accepting '{title}' ({exe_name}) — {kind}. {where}")
             res.append(hwnd)
         else:
-            log(f"[find_wow_windows] Rejecting '{title}' -- exe '{exe_name}' is not a WoW client.")
+            log(f"[find_wow_windows] Rejecting '{title}' -- exe '{exe_name}' is not a WoW client. {where}")
 
     win32gui.EnumWindows(cb, windows)
     return windows
@@ -1922,7 +2027,7 @@ class FishingBotApp:
 
         self.root = ctk.CTk()
         self.root.title(f"WoW Fishing Bot {__version__}")
-        self.root.geometry("900x1010")
+        self.root.geometry("900x1080")
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.processes = []
@@ -1964,6 +2069,7 @@ class FishingBotApp:
         fields = [
             ("hours", "Run time (hours)", DEFAULTS["hours"]),
             ("cast_key", "Cast key (action bar key bound to Fishing)", DEFAULTS["cast_key"]),
+            ("interact_key", "Interact key (WoW Forever; blank = click the bobber)", DEFAULTS["interact_key"]),
             ("lure_key", "Lure key (blank = off)", DEFAULTS["lure_key"]),
             ("lure_minutes", "Reapply lure every N minutes", DEFAULTS["lure_minutes"]),
             ("anti_afk_minutes", "Anti-AFK: jump every N minutes (0 = off)", DEFAULTS["anti_afk_minutes"]),
@@ -1979,7 +2085,10 @@ class FishingBotApp:
         for i, (key, label, default) in enumerate(fields):
             r, c = divmod(i, 2)
             ctk.CTkLabel(f, text=label).grid(row=base_row + r * 2, column=c * 2, columnspan=2, sticky="w", padx=16, pady=(8, 0))
-            var = ctk.StringVar(value=str(self.saved.get(key, default)))
+            saved_val = self.saved.get(key, default)
+            if key == "interact_key":
+                saved_val = key_display(saved_val)
+            var = ctk.StringVar(value=str(saved_val))
             self.vars[key] = var
             ctk.CTkEntry(f, textvariable=var, width=160).grid(
                 row=base_row + r * 2 + 1, column=c * 2, columnspan=2, sticky="w", padx=16, pady=(0, 4))
@@ -2047,6 +2156,7 @@ class FishingBotApp:
         min_bite = min(max(_float(self.vars["min_bite_delay"].get(), DEFAULTS["min_bite_delay"]), 1.0), watch - 1.0)
         hits = max(1, int(_float(self.vars["required_hits"].get(), DEFAULTS["required_hits"])))
         cast_key = (self.vars["cast_key"].get().strip() or DEFAULTS["cast_key"])[:1]
+        interact_key = normalize_key(self.vars["interact_key"].get())
         lure_key = self.vars["lure_key"].get().strip()[:1]
         return {
             "hours": max(_float(self.vars["hours"].get(), DEFAULTS["hours"]), 0.01),
@@ -2058,6 +2168,7 @@ class FishingBotApp:
             "min_bite_delay": min_bite,
             "required_hits": hits,
             "cast_key": cast_key,
+            "interact_key": interact_key,
             "lure_key": lure_key,
             "lure_minutes": max(_float(self.vars["lure_minutes"].get(), DEFAULTS["lure_minutes"]), 0.5),
             "anti_afk_minutes": min(max(_float(self.vars["anti_afk_minutes"].get(), DEFAULTS["anti_afk_minutes"]), 0.0), 4.5),
@@ -2098,11 +2209,13 @@ class FishingBotApp:
         self.status.configure(text=f"Running on {len(windows)} client(s)...", text_color="lime")
         lure = f"key '{settings['lure_key']}' every {settings['lure_minutes']:.0f} min" if settings["lure_key"] else "off"
         device = settings["audio_device"] or "default"
+        interact = key_display(settings.get("interact_key")) or "blank"
         self.log(
             f"Starting {len(windows)} bot(s) (v{__version__}): mode={settings['mode']}, splash needs +{settings['splash_db']:.0f} dB, "
             f"device='{device}', conf>={settings['conf']:.2f}, watch={settings['watch_seconds']:.0f}s, "
             f"min bite delay={settings['min_bite_delay']:.0f}s, hits={settings['required_hits']}, "
-            f"key='{settings['cast_key']}', lure={lure}, anti-AFK jump every {settings['anti_afk_minutes']:.0f} min, "
+            f"key='{settings['cast_key']}', interact='{interact}', lure={lure}, "
+            f"anti-AFK jump every {settings['anti_afk_minutes']:.0f} min, "
             f"stop after {settings['miss_limit']} missed bobbers, "
             f"adaptive={settings['adaptive']}, shift-click={settings['shift_click']}"
         )

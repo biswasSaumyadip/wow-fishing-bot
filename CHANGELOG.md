@@ -7,9 +7,24 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.11.2 — 2026-10-17
+## 1.12.0 — 2026-10-18
 
 Current build.
+
+- The bot reads the full install path and the window title and logs
+  `Client: WoW Forever` or `Client: other WoW`, plus the path. The exe name
+  is not used for this: Forever and a normal client both run `wow-64.exe`
+  (Forever has also shown up as `wowb.exe`) under the title
+  `World of Warcraft`. A path or title containing `forever` (also
+  `wowforever`, `WoW-Forever`, `wow_forever`) is Forever. Anything else is
+  other WoW, and the mouse sweep is unchanged.
+- New field **Interact key**. On WoW Forever, with that key filled in, a
+  splash presses Interact instead of sweeping and clicking. FishBotLink still
+  confirms the catch from the loot pixel. Leave the field blank and Forever
+  keeps clicking the bobber. On any other client the field is ignored.
+- Type `space` in that field to bind the space bar.
+
+## 1.11.2 — 2026-10-17
 
 - A splash and the cap losing about a third of its area now counts as the bite.
   The old rule wanted 55% gone, so a +23 dB splash with the cap 42% under was
