@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.12.0"
+__version__ = "1.12.1"
 
 import os
 import sys
@@ -500,11 +500,12 @@ class FishingBot:
         self.required_hits = max(1, int(self.settings["required_hits"]))
         self.cast_key = str(self.settings["cast_key"])[:1] or "1"
         self.interact_key = normalize_key(self.settings.get("interact_key"))
-        self.client_kind, self.client_path = client_kind(hwnd)
+        self.client_kind, self.client_path, client_reason = client_kind(hwnd)
         self.forever_hook = self.client_kind == "forever" and bool(self.interact_key)
         kind_label = "WoW Forever" if self.client_kind == "forever" else "other WoW"
         where = self.client_path or "install path could not be read"
-        self.log(f"Client: {kind_label} — {where}")
+        why = f" ({client_reason})" if client_reason else ""
+        self.log(f"Client: {kind_label}{why} — {where}")
         if self.client_kind == "forever" and self.interact_key:
             self.log(f"WoW Forever hook: splash presses Interact key '{self.interact_key}'. The mouse is not used.")
         elif self.client_kind == "forever":
@@ -1902,18 +1903,34 @@ def key_display(raw):
     return key
 
 
-def looks_like_forever(path, title):
+def forever_reason(path, title):
     """
-    WoW Forever and a normal client share wow-64.exe (and sometimes wowb.exe)
-    and the window title 'World of Warcraft', so the exe name is not enough.
-    The install folder or the title is what carries the name.
+    Why this window is WoW Forever, or '' for any other client.
+
+    The window title is 'World of Warcraft' and Task Manager shows the same
+    name. The beta does not put 'forever' in either. It is WowB.exe inside
+    World of Warcraft\\_classic_beta_. A Legion client (wow-64.exe) and retail
+    (Wow.exe in _retail_) stay other.
     """
+    # Windows paths: split on backslash so this stays right even if the
+    # check is ever run somewhere os.sep is not '\'.
+    exe = str(path or "").replace("/", "\\").rsplit("\\", 1)[-1].lower()
+    if exe == "wowb.exe":
+        return "WowB.exe beta client"
     blob = f"{path or ''} {title or ''}".lower().replace("_", " ").replace("-", " ")
-    return "forever" in blob
+    if "classic beta" in blob:
+        return "_classic_beta_ folder"
+    if "forever" in blob:
+        return "path or title contains forever"
+    return ""
+
+
+def looks_like_forever(path, title):
+    return bool(forever_reason(path, title))
 
 
 def client_kind(hwnd):
-    """('forever' or 'other', full image path or '')."""
+    """('forever' or 'other', full image path or '', reason or '')."""
     title = ""
     path = ""
     try:
@@ -1925,8 +1942,9 @@ def client_kind(hwnd):
         path = process_image_path(pid)
     except Exception:
         path = ""
-    kind = "forever" if looks_like_forever(path, title) else "other"
-    return kind, path
+    reason = forever_reason(path, title)
+    kind = "forever" if reason else "other"
+    return kind, path, reason
 
 
 def find_wow_windows(debug_log=None):
@@ -1971,16 +1989,18 @@ def find_wow_windows(debug_log=None):
         except Exception as e:
             log(f"[find_wow_windows] Could not read exe for '{title}' (hwnd={hwnd}): {e}")
 
-        kind = "WoW Forever" if looks_like_forever(image_path, title) else "other WoW"
+        reason = forever_reason(image_path, title)
+        kind = "WoW Forever" if reason else "other WoW"
+        why = f" ({reason})" if reason else ""
         where = image_path or "install path could not be read"
         if exe_name is None:
             if title_lower.startswith("world of warcraft"):
-                log(f"[find_wow_windows] Accepting '{title}' on exact title (exe unknown) — {kind}. {where}")
+                log(f"[find_wow_windows] Accepting '{title}' on exact title (exe unknown) — {kind}{why}. {where}")
                 res.append(hwnd)
             else:
                 log(f"[find_wow_windows] Rejecting '{title}' -- exe unknown and title not 'World of Warcraft'.")
         elif exe_name in KNOWN_WOW_EXES:
-            log(f"[find_wow_windows] Accepting '{title}' ({exe_name}) — {kind}. {where}")
+            log(f"[find_wow_windows] Accepting '{title}' ({exe_name}) — {kind}{why}. {where}")
             res.append(hwnd)
         else:
             log(f"[find_wow_windows] Rejecting '{title}' -- exe '{exe_name}' is not a WoW client. {where}")

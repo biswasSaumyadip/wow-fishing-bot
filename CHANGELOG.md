@@ -7,17 +7,24 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.12.0 — 2026-10-18
+## 1.12.1 — 2026-10-18
 
 Current build.
 
+- WoW Forever is recognised when the window title and the process name are
+  both just `World of Warcraft`. The beta is `WowB.exe` in
+  `World of Warcraft\_classic_beta_`, so the word `forever` is not in the
+  title or the path. `WowB.exe`, a `_classic_beta_` folder, or a path/title
+  that does contain `forever` is Forever. `wow-64.exe` (Legion) and
+  `Wow.exe` in `_retail_` stay other WoW and keep the mouse sweep.
+- The log says which signal matched, for example
+  `Client: WoW Forever (WowB.exe beta client) — D:\...\WowB.exe`.
+
+## 1.12.0 — 2026-10-18
+
 - The bot reads the full install path and the window title and logs
-  `Client: WoW Forever` or `Client: other WoW`, plus the path. The exe name
-  is not used for this: Forever and a normal client both run `wow-64.exe`
-  (Forever has also shown up as `wowb.exe`) under the title
-  `World of Warcraft`. A path or title containing `forever` (also
-  `wowforever`, `WoW-Forever`, `wow_forever`) is Forever. Anything else is
-  other WoW, and the mouse sweep is unchanged.
+  `Client: WoW Forever` or `Client: other WoW`, plus the path. 1.12.0 only
+  matched the word `forever`, which the real beta client does not use.
 - New field **Interact key**. On WoW Forever, with that key filled in, a
   splash presses Interact instead of sweeping and clicking. FishBotLink still
   confirms the catch from the loot pixel. Leave the field blank and Forever
