@@ -4,7 +4,7 @@ WoW Fishing Bot -- YOLO-based bobber/splash detection with a debug GUI.
 Run:  python fishing_bot.py
 Needs: best.pt (your trained YOLO model) in the same folder as this file.
 """
-__version__ = "1.12.4"
+__version__ = "1.12.5"
 
 import os
 import sys
@@ -1248,8 +1248,9 @@ class FishingBot:
             force_foreground(self.hwnd)
             self.send_real_key(self.interact_key)
         if self.addon is None:
-            self.log("Interact pressed. FishBotLink is not loaded, so this catch is not confirmed. Still listening.")
-            return False, 0.0
+            self.log("Interact pressed. Recasting.")
+            time.sleep(0.4)
+            return True, 0.0
         if self.wait_for_loot(sct):
             self.log("CLICKED SPLASH! Loot window opened -> catch.")
             time.sleep(0.5)
@@ -1347,7 +1348,8 @@ class FishingBot:
 
         # With the addon we can see whether the cast actually started.
         addon = self.addon_state(sct)
-        if addon is None and not self.addon_seen and not getattr(self, "_warned_no_addon", False):
+        if (addon is None and self.client_kind != "forever" and not self.addon_seen
+                and not getattr(self, "_warned_no_addon", False)):
             self._warned_no_addon = True
             self.log("FishBotLink addon not detected (no magenta marker at the top-left of the game view) -- "
                      "relying on the model alone. Install it from the addon/ folder for exact bobber finding.")

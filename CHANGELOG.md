@@ -7,9 +7,16 @@ The window title, the heading, the first log line, and each worker's
 `Bot N | fishing_bot X.Y.Z` line all print that number, so a pasted log
 tells you which build actually ran.
 
-## 1.12.4 — 2026-10-18
+## 1.12.5 — 2026-10-18
 
 Current build.
+
+- WoW Forever does not need FishBotLink. A splash presses Interact and the
+  next cast starts. The "addon not detected" line is not logged on that
+  client. If the addon is installed anyway, a loot window still counts as
+  the catch.
+
+## 1.12.4 — 2026-10-18
 
 - WoW Forever uses the splash field again. 1.12.3 lowered a +43 field to
   +20, so water and the tail of a splash (+20 to +31) pressed Interact. The
